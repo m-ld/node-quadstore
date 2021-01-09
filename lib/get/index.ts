@@ -50,26 +50,13 @@ const reconcilePatternWithDefaultGraphMode = (pattern: Pattern, store: Quadstore
   return pattern;
 };
 
-const gt = Buffer.alloc(8192 * 6);
-const lt = Buffer.alloc(8192 * 6);
-
 const getLevelOpts = (pattern: Pattern, store: Quadstore): LevelOpts => {
 
   for (let i = 0, index; i < store.indexes.length; i += 1) {
 
     index = store.indexes[i];
 
-    copyBufferIntoBuffer(index.prefix, gt, 0);
-    copyBufferIntoBuffer(index.prefix, lt, 0);
-
-    const res = writePattern(
-      pattern,
-      gt, index.prefix.byteLength,
-      lt, index.prefix.byteLength,
-      store.separator,
-      store.boundary,
-      index.terms,
-    );
+    const res = writePattern(pattern, index.prefix, store.separator, store.boundary, index.terms, store.prefixes);
 
     if (res) {
       return {
@@ -77,7 +64,7 @@ const getLevelOpts = (pattern: Pattern, store: Quadstore): LevelOpts => {
         [res.lte ? 'lte' : 'lt']: res.lt,
         keys: true,
         values: true,
-        keyAsBuffer: true,
+        keyAsBuffer: false,
         valueAsBuffer: true,
         ___index: index,
       };
@@ -90,8 +77,9 @@ const getLevelOpts = (pattern: Pattern, store: Quadstore): LevelOpts => {
 export const getStream = async (store: Quadstore, pattern: Pattern, opts?: GetOpts): Promise<QuadStreamResult> => {
   pattern = reconcilePatternWithDefaultGraphMode(pattern, store, opts);
   const levelOpts = getLevelOpts(pattern, store);
-  const iterator = new LevelIterator(store.db.iterator(levelOpts), (key: Buffer, value: Buffer) => {
-    return quadReader.read(key, levelOpts.___index.prefix.byteLength, value, 0, store.separator, levelOpts.___index.terms, store.dataFactory);
+  const { dataFactory, prefixes, separator } = store;
+  const iterator = new LevelIterator(store.db.iterator(levelOpts), (key: string, value: Buffer) => {
+    return quadReader.read(key, levelOpts.___index.prefix.length, value, 0, separator, levelOpts.___index.terms, dataFactory, prefixes);
   });
   return { type: ResultType.QUADS, iterator };
 };

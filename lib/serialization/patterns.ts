@@ -9,21 +9,18 @@ import {
 } from './terms';
 import * as xsd from './xsd';
 import {encode} from './fpstring';
-import {Pattern, TermName} from '../types';
+import {Pattern, Prefixes, TermName} from '../types';
 import {copyBufferIntoBuffer, copyBuffer} from './utils';
 
 const patternLiteralWriter = {
-  writtenKeyBytes: 0,
-  writeToPattern(key: Buffer, keyOffset: number, separator: Buffer, term: Literal) {
+  write(separator: string, term: Literal) {
     if (term.language) {
-      langStringLiteralWriter.writeToPattern(key, keyOffset, term, separator);
-      this.writtenKeyBytes = langStringLiteralWriter.writtenKeyBytes;
-    } else if (term.datatype) {
+      return langStringLiteralWriter.write(undefined, undefined, term, separator);
+    }
+    if (term.datatype) {
       switch (term.datatype.value) {
         case xsd.string:
-          stringLiteralWriter.writeToPattern(key, keyOffset, term);
-          this.writtenKeyBytes = stringLiteralWriter.writtenKeyBytes;
-          break;
+          return stringLiteralWriter.write(undefined, undefined, term);
         case xsd.integer:
         case xsd.double:
         case xsd.decimal:
@@ -39,39 +36,34 @@ const patternLiteralWriter = {
         case xsd.unsignedShort:
         case xsd.unsignedByte:
         case xsd.positiveInteger:
-          numericLiteralWriter.writeToPattern(key, keyOffset, term, separator, Buffer.from(encode(term.value)), true);
-          this.writtenKeyBytes = numericLiteralWriter.writtenKeyBytes;
-          break;
+          return numericLiteralWriter.write(undefined, undefined, term, separator, encode(term.value), true);
         case xsd.dateTime:
-          numericLiteralWriter.writeToPattern(key, keyOffset, term, separator, Buffer.from(new Date(term.value).valueOf().toString()), true);
-          this.writtenKeyBytes = numericLiteralWriter.writtenKeyBytes;
-          break;
+          return numericLiteralWriter.write(undefined, undefined, term, separator, encode(new Date(term.value).valueOf()), true);
         default:
-          genericLiteralWriter.writeToPattern(key, keyOffset, term, separator);
-          this.writtenKeyBytes = genericLiteralWriter.writtenKeyBytes;
+          return genericLiteralWriter.write(undefined, undefined, term, separator);
       }
-    } else {
-      stringLiteralWriter.writeToPattern(key, keyOffset, term);
-      this.writtenKeyBytes = stringLiteralWriter.writtenKeyBytes;
     }
+    return stringLiteralWriter.write(undefined, undefined, term);
   }
 };
 
 export const writePattern = (
   pattern: Pattern,
-  gt: Buffer, gtFrom: number,
-  lt: Buffer, ltFrom: number,
-  separator: Buffer, boundary: Buffer,
+  prefix: string,
+  separator: string,
+  boundary: string,
   termNames: TermName[],
-): ({ gt: Buffer, gte: boolean, lt: Buffer, lte: boolean }|false) => {
+  prefixes: Prefixes,
+): ({ gt: string, gte: boolean, lt: string, lte: boolean }|false) => {
+  let gt = prefix;
+  let lt = prefix;
   let gte = true;
   let lte = true;
   let didRangeOrLiteral = false;
   let remaining = Object.entries(pattern).filter(([termName, term]) => term).length;
   if (remaining === 0) {
-    copyBufferIntoBuffer(boundary, lt, ltFrom);
-    ltFrom += boundary.byteLength;
-    return { gt: copyBuffer(gt, 0, gtFrom), lt: copyBuffer(lt, 0, ltFrom), gte, lte };
+    lt += boundary;
+    return { gt, lt, gte, lte };
   }
   for (let t = 0; t < termNames.length && remaining > 0; t += 1) {
     const term = pattern[termNames[t]];
@@ -85,96 +77,72 @@ export const writePattern = (
       case 'Range':
         didRangeOrLiteral = true;
         if (term.gt) {
-          patternLiteralWriter.writeToPattern(gt, gtFrom, separator, term.gt);
-          gtFrom += patternLiteralWriter.writtenKeyBytes;
+          gt += patternLiteralWriter.write(separator, term.gt);
           gte = false;
         } else if (term.gte) {
-          patternLiteralWriter.writeToPattern(gt, gtFrom, separator, term.gte);
-          gtFrom += patternLiteralWriter.writtenKeyBytes;
+          gt += patternLiteralWriter.write(separator, term.gte);
           gte = true;
         }
         if (term.lt) {
-          patternLiteralWriter.writeToPattern(lt, ltFrom, separator, term.lt);
-          ltFrom += patternLiteralWriter.writtenKeyBytes;
+          lt += patternLiteralWriter.write(separator, term.lt);
           lte = false;
         } else if (term.lte) {
-          patternLiteralWriter.writeToPattern(lt, ltFrom, separator, term.lte);
-          ltFrom += patternLiteralWriter.writtenKeyBytes;
+          lt += patternLiteralWriter.write(separator, term.lte);
           lte = true;
         }
         break;
       case 'Literal':
         didRangeOrLiteral = true;
-        patternLiteralWriter.writeToPattern(gt, gtFrom, separator, term);
-        gtFrom += patternLiteralWriter.writtenKeyBytes;
+        gt += patternLiteralWriter.write(separator, term);
         gte = true;
-        patternLiteralWriter.writeToPattern(lt, ltFrom, separator, term);
-        ltFrom += patternLiteralWriter.writtenKeyBytes;
+        lt += patternLiteralWriter.write(separator, term);
         lte = true;
         break;
       case 'NamedNode':
-        namedNodeWriter.writeToPattern(gt, gtFrom, term);
-        gtFrom += namedNodeWriter.writtenKeyBytes;
+        gt += namedNodeWriter.write(undefined, undefined, term, prefixes);
         gte = true;
-        namedNodeWriter.writeToPattern(lt, ltFrom, term);
-        ltFrom += namedNodeWriter.writtenKeyBytes;
+        lt += namedNodeWriter.write(undefined, undefined, term, prefixes);
         lte = true;
         break;
       case 'BlankNode':
-        blankNodeWriter.writeToPattern(gt, gtFrom, term);
-        gtFrom += blankNodeWriter.writtenKeyBytes;
+        gt += blankNodeWriter.write(undefined, undefined, term);
         gte = true;
-        blankNodeWriter.writeToPattern(lt, ltFrom, term);
-        ltFrom += blankNodeWriter.writtenKeyBytes;
+        lt += blankNodeWriter.write(undefined, undefined, term);
         lte = true;
         break;
       case 'DefaultGraph':
-        defaultGraphWriter.writeToPattern(gt, gtFrom, term);
-        gtFrom += defaultGraphWriter.writtenKeyBytes;
+        gt += defaultGraphWriter.write(undefined, undefined, term);
         gte = true;
-        defaultGraphWriter.writeToPattern(lt, ltFrom, term);
-        ltFrom += defaultGraphWriter.writtenKeyBytes;
+        lt += defaultGraphWriter.write(undefined, undefined, term);
         lte = true;
         break;
     }
     remaining -= 1;
     if (remaining > 0 && t < termNames.length - 1) {
-      copyBufferIntoBuffer(separator, gt, gtFrom);
-      gtFrom += separator.byteLength;
-      copyBufferIntoBuffer(separator, lt, ltFrom);
-      ltFrom += separator.byteLength;
+      gt += separator;
+      lt += separator;
     }
   }
 
   if (lte) {
     if (didRangeOrLiteral) {
-      copyBufferIntoBuffer(boundary, lt, ltFrom);
-      ltFrom += boundary.byteLength;
+      lt += boundary;
     } else {
-      copyBufferIntoBuffer(separator, lt, ltFrom);
-      ltFrom += separator.byteLength;
-      copyBufferIntoBuffer(boundary, lt, ltFrom);
-      ltFrom += boundary.byteLength;
+      lt += separator + boundary;
     }
   } else {
-    copyBufferIntoBuffer(separator, lt, ltFrom);
-    ltFrom += separator.byteLength;
+    lt += separator;
   }
   if (gte) {
     if (!didRangeOrLiteral) {
-      copyBufferIntoBuffer(separator, gt, gtFrom);
-      gtFrom += separator.byteLength;
+      gt += separator;
     }
   } else {
     if (didRangeOrLiteral) {
-      copyBufferIntoBuffer(boundary, gt, gtFrom);
-      gtFrom += boundary.byteLength;
+      gt += boundary;
     } else {
-      copyBufferIntoBuffer(separator, gt, gtFrom);
-      gtFrom += separator.byteLength;
-      copyBufferIntoBuffer(boundary, gt, gtFrom);
-      gtFrom += boundary.byteLength;
+      gt += separator + boundary;
     }
   }
-  return { gt: copyBuffer(gt, 0, gtFrom), lt: copyBuffer(lt, 0, ltFrom), gte, lte };
+  return { gt, lt, gte, lte };
 };

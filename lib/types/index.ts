@@ -42,7 +42,7 @@ export enum ResultType {
 
 export interface InternalIndex {
   terms: TermName[],
-  prefix: Buffer,
+  prefix: string,
 }
 
 export interface ApproximateSizeResult {
