@@ -14,6 +14,7 @@ const {DataFactory} = require('rdf-data-factory');
 const remove = util.promisify(fs.remove);
 
 require('./fpstring')();
+require('./serialization')();
 
 describe('MemDOWN backend', () => {
 
